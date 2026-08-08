@@ -30,26 +30,26 @@ jobs:
 
       - name: Show environment
         run: |
-          echo "======================================"
-          echo "macOS"
-          echo "======================================"
+          set -e
+
+          echo "===== macOS ====="
           sw_vers
 
           echo ""
-          echo "======================================"
-          echo "Xcode"
-          echo "======================================"
+          echo "===== Xcode ====="
           xcodebuild -version
 
           echo ""
-          echo "======================================"
-          echo "Swift"
-          echo "======================================"
+          echo "===== Swift ====="
           swift --version
+
+          echo ""
+          echo "===== GitHub CLI ====="
+          gh --version
 
 
       # ============================================================
-      # 3. GitHub API authentication
+      # 3. GitHub API
       # ============================================================
 
       - name: Check GitHub API
@@ -58,7 +58,6 @@ jobs:
         run: |
           set -e
 
-          echo "GitHub authentication:"
           gh auth status
 
           echo ""
@@ -79,229 +78,234 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Downloading TablePro libraries..."
-
           chmod +x scripts/download-libs.sh
 
           ./scripts/download-libs.sh
 
 
       # ============================================================
-      # 5. Create Secrets.xcconfig if missing
+      # 5. Prepare configuration
       # ============================================================
 
-      - name: Prepare iOS configuration
+      - name: Prepare configuration
         run: |
           set -e
+
+          if [ ! -f "Secrets.xcconfig" ]; then
+            echo "Creating Secrets.xcconfig"
+            touch Secrets.xcconfig
+          fi
 
           if [ ! -f "TableProMobile/Secrets.xcconfig" ]; then
             echo "Creating TableProMobile/Secrets.xcconfig"
-
-            touch "TableProMobile/Secrets.xcconfig"
-          else
-            echo "TableProMobile/Secrets.xcconfig already exists"
+            touch TableProMobile/Secrets.xcconfig
           fi
 
 
       # ============================================================
-      # 6. Verify iOS project
+      # 6. Create iOS shared scheme
       # ============================================================
 
-      - name: Verify iOS project
-        run: |
-          set -e
-
-          PROJECT="TableProMobile/TableProMobile.xcodeproj"
-
-          if [ ! -d "$PROJECT" ]; then
-            echo "ERROR: iOS project not found:"
-            echo "$PROJECT"
-            exit 1
-          fi
-
-          echo "iOS project:"
-          echo "$PROJECT"
-
-          echo ""
-          echo "Available schemes:"
-          echo "======================================"
-
-          xcodebuild \
-            -project "$PROJECT" \
-            -list
-
-
-      # ============================================================
-      # 7. Detect iOS scheme
-      # ============================================================
-
-      - name: Detect iOS scheme
-        id: xcode
+      - name: Create TableProMobile scheme
         shell: bash
         run: |
           set -euo pipefail
 
           PROJECT="TableProMobile/TableProMobile.xcodeproj"
 
-          echo "Project:"
-          echo "$PROJECT"
+          SCHEME_DIR="$PROJECT/xcshareddata/xcschemes"
 
-          echo ""
-          echo "Getting schemes..."
+          mkdir -p "$SCHEME_DIR"
 
-          SCHEMES=$(
-            xcodebuild \
-              -project "$PROJECT" \
-              -list 2>/dev/null |
-              awk '
-                /^Schemes:/ {
-                  found=1
-                  next
-                }
+          cat > "$SCHEME_DIR/TableProMobile.xcscheme" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Scheme
+             LastUpgradeVersion = "2660"
+             version = "1.3">
 
-                found && NF {
-                  gsub(/^[ \t]+/, "")
-                  print
-                }
+             <BuildAction
+                parallelizeBuildables = "YES"
+                buildImplicitDependencies = "YES">
 
-                found && !NF {
-                  exit
-                }
-              '
-          )
+                <BuildActionEntries>
 
-          echo ""
-          echo "Detected schemes:"
-          echo "$SCHEMES"
+                   <BuildActionEntry
+                      buildForTesting = "YES"
+                      buildForRunning = "YES"
+                      buildForProfiling = "YES"
+                      buildForArchiving = "YES"
+                      buildForAnalyzing = "YES">
 
-          SCHEME=""
+                      <BuildableReference
+                         BuildableIdentifier = "primary"
+                         BlueprintIdentifier = "5AB9F3D42F7C1C12001F3337"
+                         BuildableName = "TableProMobile.app"
+                         BlueprintName = "TableProMobile"
+                         ReferencedContainer = "container:TableProMobile.xcodeproj">
+                      </BuildableReference>
 
-          # Prefer TableProMobile
-          if echo "$SCHEMES" | grep -Fxq "TableProMobile"; then
-            SCHEME="TableProMobile"
-          fi
+                   </BuildActionEntry>
 
-          # Fallback to TablePro
-          if [ -z "$SCHEME" ] &&
-             echo "$SCHEMES" | grep -Fxq "TablePro"; then
-            SCHEME="TablePro"
-          fi
+                </BuildActionEntries>
 
-          # Last fallback
-          if [ -z "$SCHEME" ]; then
-            SCHEME=$(echo "$SCHEMES" | head -n 1)
-          fi
+             </BuildAction>
 
-          if [ -z "$SCHEME" ]; then
-            echo ""
-            echo "ERROR: No scheme found."
-            exit 1
-          fi
 
-          echo ""
-          echo "======================================"
-          echo "Using iOS project"
-          echo "======================================"
-          echo "PROJECT=$PROJECT"
-          echo "SCHEME=$SCHEME"
+             <TestAction
+                buildConfiguration = "Debug"
+                selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+                selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+                shouldUseLaunchSchemeArgsEnv = "YES">
 
-          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+             </TestAction>
+
+
+             <LaunchAction
+                buildConfiguration = "Release"
+                selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+                selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+                launchStyle = "0"
+                useCustomWorkingDirectory = "NO"
+                ignoresPersistentStateOnLaunch = "NO"
+                debugDocumentVersioning = "YES"
+                debugServiceExtension = "internal"
+                allowLocationSimulation = "YES">
+
+                <BuildableProductRunnable
+                   runnableDebuggingMode = "0">
+
+                   <BuildableReference
+                      BuildableIdentifier = "primary"
+                      BlueprintIdentifier = "5AB9F3D42F7C1C12001F3337"
+                      BuildableName = "TableProMobile.app"
+                      BlueprintName = "TableProMobile"
+                      ReferencedContainer = "container:TableProMobile.xcodeproj">
+                   </BuildableReference>
+
+                </BuildableProductRunnable>
+
+             </LaunchAction>
+
+
+             <ProfileAction
+                buildConfiguration = "Release"
+                shouldUseLaunchSchemeArgsEnv = "YES"
+                savedToolIdentifier = ""
+                useCustomWorkingDirectory = "NO"
+                debugDocumentVersioning = "YES">
+
+                <BuildableProductRunnable
+                   runnableDebuggingMode = "0">
+
+                   <BuildableReference
+                      BuildableIdentifier = "primary"
+                      BlueprintIdentifier = "5AB9F3D42F7C1C12001F3337"
+                      BuildableName = "TableProMobile.app"
+                      BlueprintName = "TableProMobile"
+                      ReferencedContainer = "container:TableProMobile.xcodeproj">
+                   </BuildableReference>
+
+                </BuildableProductRunnable>
+
+             </ProfileAction>
+
+
+             <AnalyzeAction
+                buildConfiguration = "Debug">
+             </AnalyzeAction>
+
+
+             <ArchiveAction
+                buildConfiguration = "Release"
+                revealArchiveInOrganizer = "YES"
+                useCustomWorkingDirectory = "NO"
+                allowNetworkAccess = "YES">
+             </ArchiveAction>
+
+          </Scheme>
+          EOF
+
+          echo "===== Created scheme ====="
+
+          cat "$SCHEME_DIR/TableProMobile.xcscheme"
 
 
       # ============================================================
-      # 8. Resolve Swift packages
+      # 7. Verify scheme
+      # ============================================================
+
+      - name: Verify scheme
+        run: |
+          set -e
+
+          xcodebuild \
+            -project "TableProMobile/TableProMobile.xcodeproj" \
+            -list
+
+
+      # ============================================================
+      # 8. Resolve packages
       # ============================================================
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
 
-          PROJECT="${{ steps.xcode.outputs.project }}"
-          SCHEME="${{ steps.xcode.outputs.scheme }}"
-
-          echo "Resolving Swift packages..."
-
           xcodebuild \
             -resolvePackageDependencies \
-            -project "$PROJECT" \
-            -scheme "$SCHEME"
+            -project "TableProMobile/TableProMobile.xcodeproj" \
+            -scheme "TableProMobile"
 
 
       # ============================================================
-      # 9. Show iOS destinations
+      # 9. Check iOS destinations
       # ============================================================
 
       - name: Check iOS destinations
         run: |
           set -e
 
-          PROJECT="${{ steps.xcode.outputs.project }}"
-          SCHEME="${{ steps.xcode.outputs.scheme }}"
-
-          echo "Checking destinations for:"
-          echo "$SCHEME"
-
           xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
+            -project "TableProMobile/TableProMobile.xcodeproj" \
+            -scheme "TableProMobile" \
             -showdestinations
 
 
       # ============================================================
-      # 10. Build iOS
+      # 10. Build iOS application
       # ============================================================
 
       - name: Build iOS application
+        shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
 
-          PROJECT="${{ steps.xcode.outputs.project }}"
-          SCHEME="${{ steps.xcode.outputs.scheme }}"
+          rm -rf build
 
-          DERIVED_DATA="$GITHUB_WORKSPACE/build/DerivedData"
-
-          rm -rf "$DERIVED_DATA"
-
-          mkdir -p "$DERIVED_DATA"
-
-          echo ""
-          echo "======================================"
-          echo "Building iOS"
-          echo "======================================"
-
-          echo "Project:"
-          echo "$PROJECT"
-
-          echo ""
-          echo "Scheme:"
-          echo "$SCHEME"
-
-          echo ""
-          echo "DerivedData:"
-          echo "$DERIVED_DATA"
+          mkdir -p build/DerivedData
 
           xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
+            -project "TableProMobile/TableProMobile.xcodeproj" \
+            -scheme "TableProMobile" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$GITHUB_WORKSPACE/build/DerivedData" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             ONLY_ACTIVE_ARCH=NO \
-            build
+            build \
+            | tee build.log
 
 
       # ============================================================
       # 11. Find .app
       # ============================================================
 
-      - name: Find generated iOS app
+      - name: Find generated app
         id: app
         shell: bash
         run: |
@@ -309,7 +313,7 @@ jobs:
 
           DERIVED_DATA="$GITHUB_WORKSPACE/build/DerivedData"
 
-          echo "Searching for iOS .app..."
+          echo "===== Searching for .app ====="
 
           find "$DERIVED_DATA" \
             -type d \
@@ -325,11 +329,13 @@ jobs:
           )
 
           if [ -z "$APP_PATH" ]; then
-            echo ""
-            echo "ERROR: iOS .app not found."
 
             echo ""
-            echo "Products:"
+            echo "ERROR: No iOS .app found."
+
+            echo ""
+            echo "Build products:"
+
             find "$DERIVED_DATA/Build/Products" \
               -maxdepth 4 \
               -print || true
@@ -338,10 +344,7 @@ jobs:
           fi
 
           echo ""
-          echo "======================================"
-          echo "Found APP"
-          echo "======================================"
-
+          echo "Found:"
           echo "$APP_PATH"
 
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
@@ -357,30 +360,25 @@ jobs:
 
           APP_PATH="${{ steps.app.outputs.app_path }}"
 
-          IPA_DIR="$GITHUB_WORKSPACE/build/IPA"
-          PAYLOAD_DIR="$IPA_DIR/Payload"
+          rm -rf build/IPA
 
-          rm -rf "$IPA_DIR"
+          mkdir -p build/IPA/Payload
 
-          mkdir -p "$PAYLOAD_DIR"
+          cp -R \
+            "$APP_PATH" \
+            "build/IPA/Payload/TableProMobile.app"
 
-          echo "Copying:"
-          echo "$APP_PATH"
-
-          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-
-          cd "$IPA_DIR"
+          cd build/IPA
 
           zip -qry \
-            "$GITHUB_WORKSPACE/TablePro-iOS-unsigned.ipa" \
+            "$GITHUB_WORKSPACE/TableProMobile-unsigned.ipa" \
             Payload
 
           echo ""
-          echo "======================================"
-          echo "IPA CREATED"
-          echo "======================================"
+          echo "===== IPA CREATED ====="
 
-          ls -lh "$GITHUB_WORKSPACE/TablePro-iOS-unsigned.ipa"
+          ls -lh \
+            "$GITHUB_WORKSPACE/TableProMobile-unsigned.ipa"
 
 
       # ============================================================
@@ -391,12 +389,12 @@ jobs:
         run: |
           set -e
 
-          echo "IPA:"
-          ls -lh TablePro-iOS-unsigned.ipa
+          ls -lh TableProMobile-unsigned.ipa
 
           echo ""
-          echo "Contents:"
-          unzip -l TablePro-iOS-unsigned.ipa | head -80
+          echo "===== IPA CONTENT ====="
+
+          unzip -l TableProMobile-unsigned.ipa | head -80
 
 
       # ============================================================
@@ -406,22 +404,23 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: TablePro-iOS-IPA
-          path: TablePro-iOS-unsigned.ipa
+          name: TableProMobile-iOS-IPA
+          path: TableProMobile-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
 
 
       # ============================================================
-      # 15. Upload build logs if failed
+      # 15. Upload logs when failed
       # ============================================================
 
       - name: Upload debug files
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TablePro-iOS-build-debug
+          name: TableProMobile-build-debug
           path: |
             build/
+            build.log
           if-no-files-found: ignore
           retention-days: 3
