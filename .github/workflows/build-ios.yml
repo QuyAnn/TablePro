@@ -1,0 +1,74 @@
+name: Build TablePro iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Download dependencies
+        run: |
+          chmod +x scripts/download-libs.sh
+          ./scripts/download-libs.sh
+
+      - name: Create Secrets.xcconfig
+        run: |
+          touch Secrets.xcconfig
+
+      - name: List schemes
+        run: |
+          xcodebuild \
+            -project TablePro.xcodeproj \
+            -list
+
+      - name: Build iOS
+        run: |
+          xcodebuild \
+            -project TablePro.xcodeproj \
+            -scheme TableProMobile \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build \
+            | tee build.log
+
+      - name: Find app
+        run: |
+          find ~/Library/Developer/Xcode/DerivedData \
+            -name "*.app" \
+            -path "*Release-iphoneos*" \
+            -print
+
+      - name: Package IPA
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
+            -name "*.app" \
+            -path "*Release-iphoneos*" \
+            -type d \
+            | head -1)
+
+          echo "APP_PATH=$APP_PATH"
+
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          zip -r TablePro.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: TablePro-iOS-IPA
+          path: TablePro.ipa
