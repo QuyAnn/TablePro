@@ -15,55 +15,64 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
+
       # ============================================================
-      # 1. Checkout source
+      # 1. Checkout
       # ============================================================
+
       - name: Checkout
         uses: actions/checkout@v4
 
+
       # ============================================================
-      # 2. Show environment
+      # 2. Environment
       # ============================================================
+
       - name: Show environment
         run: |
-          echo "macOS:"
+          echo "======================================"
+          echo "macOS"
+          echo "======================================"
           sw_vers
 
           echo ""
-          echo "Xcode:"
+          echo "======================================"
+          echo "Xcode"
+          echo "======================================"
           xcodebuild -version
 
           echo ""
-          echo "Swift:"
+          echo "======================================"
+          echo "Swift"
+          echo "======================================"
           swift --version
 
-          echo ""
-          echo "GitHub CLI:"
-          gh --version
 
       # ============================================================
-      # 3. Check GitHub authentication / API rate limit
+      # 3. GitHub API authentication
       # ============================================================
+
       - name: Check GitHub API
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Checking GitHub authentication..."
+          set -e
 
+          echo "GitHub authentication:"
           gh auth status
 
           echo ""
           echo "GitHub API rate limit:"
+
           gh api rate_limit \
-            --jq '.resources.core | {
-              limit: .limit,
-              remaining: .remaining,
-              reset: .reset
-            }'
+            --jq '.resources.core |
+              "limit=\(.limit)\nremaining=\(.remaining)\nreset=\(.reset)"'
+
 
       # ============================================================
-      # 4. Download prebuilt libraries
+      # 4. Download libraries
       # ============================================================
+
       - name: Download libraries
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,119 +85,173 @@ jobs:
 
           ./scripts/download-libs.sh
 
+
       # ============================================================
-      # 5. List Xcode projects / schemes
+      # 5. Create Secrets.xcconfig if missing
       # ============================================================
-      - name: List Xcode schemes
+
+      - name: Prepare iOS configuration
         run: |
           set -e
 
-          echo "Searching for Xcode projects..."
+          if [ ! -f "TableProMobile/Secrets.xcconfig" ]; then
+            echo "Creating TableProMobile/Secrets.xcconfig"
 
-          find . \
-            -name "*.xcodeproj" \
-            -o -name "*.xcworkspace"
+            touch "TableProMobile/Secrets.xcconfig"
+          else
+            echo "TableProMobile/Secrets.xcconfig already exists"
+          fi
+
+
+      # ============================================================
+      # 6. Verify iOS project
+      # ============================================================
+
+      - name: Verify iOS project
+        run: |
+          set -e
+
+          PROJECT="TableProMobile/TableProMobile.xcodeproj"
+
+          if [ ! -d "$PROJECT" ]; then
+            echo "ERROR: iOS project not found:"
+            echo "$PROJECT"
+            exit 1
+          fi
+
+          echo "iOS project:"
+          echo "$PROJECT"
 
           echo ""
           echo "Available schemes:"
-          echo "================="
+          echo "======================================"
 
-          if [ -f "TablePro.xcodeproj/project.pbxproj" ]; then
-            xcodebuild \
-              -project TablePro.xcodeproj \
-              -list
-          fi
+          xcodebuild \
+            -project "$PROJECT" \
+            -list
+
 
       # ============================================================
-      # 6. Detect project and scheme
+      # 7. Detect iOS scheme
       # ============================================================
-      - name: Detect Xcode project and scheme
+
+      - name: Detect iOS scheme
         id: xcode
         shell: bash
         run: |
           set -euo pipefail
 
-          PROJECT=""
+          PROJECT="TableProMobile/TableProMobile.xcodeproj"
 
-          if [ -f "TablePro.xcodeproj/project.pbxproj" ]; then
-            PROJECT="TablePro.xcodeproj"
-          else
-            PROJECT=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1 || true)
-          fi
+          echo "Project:"
+          echo "$PROJECT"
 
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: No .xcodeproj found"
-            exit 1
-          fi
+          echo ""
+          echo "Getting schemes..."
 
-          echo "Project: $PROJECT"
+          SCHEMES=$(
+            xcodebuild \
+              -project "$PROJECT" \
+              -list 2>/dev/null |
+              awk '
+                /^Schemes:/ {
+                  found=1
+                  next
+                }
 
-          # Get schemes from xcodebuild
-          SCHEMES=$(xcodebuild \
-            -project "$PROJECT" \
-            -list 2>/dev/null \
-            | sed -n '/Schemes:/,/^$/p' \
-            | tail -n +2 \
-            | sed 's/^[[:space:]]*//' \
-            | sed '/^$/d' || true)
+                found && NF {
+                  gsub(/^[ \t]+/, "")
+                  print
+                }
+
+                found && !NF {
+                  exit
+                }
+              '
+          )
 
           echo ""
           echo "Detected schemes:"
           echo "$SCHEMES"
 
-          # Prefer a mobile/iOS scheme.
           SCHEME=""
 
-          for candidate in \
-            "TablePro" \
-            "TableProMobile" \
-            "TablePro iOS" \
-            "TablePro-iOS"
-          do
-            if echo "$SCHEMES" | grep -Fxq "$candidate"; then
-              SCHEME="$candidate"
-              break
-            fi
-          done
+          # Prefer TableProMobile
+          if echo "$SCHEMES" | grep -Fxq "TableProMobile"; then
+            SCHEME="TableProMobile"
+          fi
 
-          # If preferred scheme does not exist, use first available scheme.
+          # Fallback to TablePro
+          if [ -z "$SCHEME" ] &&
+             echo "$SCHEMES" | grep -Fxq "TablePro"; then
+            SCHEME="TablePro"
+          fi
+
+          # Last fallback
           if [ -z "$SCHEME" ]; then
             SCHEME=$(echo "$SCHEMES" | head -n 1)
           fi
 
           if [ -z "$SCHEME" ]; then
-            echo "ERROR: Could not detect Xcode scheme."
             echo ""
-            echo "Available schemes were:"
-            echo "$SCHEMES"
+            echo "ERROR: No scheme found."
             exit 1
           fi
 
           echo ""
-          echo "Using:"
+          echo "======================================"
+          echo "Using iOS project"
+          echo "======================================"
           echo "PROJECT=$PROJECT"
           echo "SCHEME=$SCHEME"
 
-          {
-            echo "project=$PROJECT"
-            echo "scheme=$SCHEME"
-          } >> "$GITHUB_OUTPUT"
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
 
       # ============================================================
-      # 7. Resolve Swift Package dependencies
+      # 8. Resolve Swift packages
       # ============================================================
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
 
+          PROJECT="${{ steps.xcode.outputs.project }}"
+          SCHEME="${{ steps.xcode.outputs.scheme }}"
+
+          echo "Resolving Swift packages..."
+
           xcodebuild \
             -resolvePackageDependencies \
-            -project "${{ steps.xcode.outputs.project }}" \
-            -scheme "${{ steps.xcode.outputs.scheme }}"
+            -project "$PROJECT" \
+            -scheme "$SCHEME"
+
 
       # ============================================================
-      # 8. Build unsigned iOS application
+      # 9. Show iOS destinations
       # ============================================================
+
+      - name: Check iOS destinations
+        run: |
+          set -e
+
+          PROJECT="${{ steps.xcode.outputs.project }}"
+          SCHEME="${{ steps.xcode.outputs.scheme }}"
+
+          echo "Checking destinations for:"
+          echo "$SCHEME"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -showdestinations
+
+
+      # ============================================================
+      # 10. Build iOS
+      # ============================================================
+
       - name: Build iOS application
         run: |
           set -euo pipefail
@@ -202,11 +265,21 @@ jobs:
 
           mkdir -p "$DERIVED_DATA"
 
-          echo "Building:"
-          echo "Project : $PROJECT"
-          echo "Scheme  : $SCHEME"
-          echo "SDK     : iphoneos"
           echo ""
+          echo "======================================"
+          echo "Building iOS"
+          echo "======================================"
+
+          echo "Project:"
+          echo "$PROJECT"
+
+          echo ""
+          echo "Scheme:"
+          echo "$SCHEME"
+
+          echo ""
+          echo "DerivedData:"
+          echo "$DERIVED_DATA"
 
           xcodebuild \
             -project "$PROJECT" \
@@ -223,10 +296,12 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             build
 
+
       # ============================================================
-      # 9. Find generated .app
+      # 11. Find .app
       # ============================================================
-      - name: Find generated app
+
+      - name: Find generated iOS app
         id: app
         shell: bash
         run: |
@@ -234,38 +309,48 @@ jobs:
 
           DERIVED_DATA="$GITHUB_WORKSPACE/build/DerivedData"
 
-          echo "Searching for .app..."
-          echo ""
+          echo "Searching for iOS .app..."
 
           find "$DERIVED_DATA" \
             -type d \
             -name "*.app" \
             -print
 
-          APP_PATH=$(find "$DERIVED_DATA" \
-            -type d \
-            -path "*/Build/Products/Release-iphoneos/*.app" \
-            -print \
-            | head -n 1)
+          APP_PATH=$(
+            find "$DERIVED_DATA" \
+              -type d \
+              -path "*/Build/Products/Release-iphoneos/*.app" \
+              -print |
+              head -n 1
+          )
 
           if [ -z "$APP_PATH" ]; then
             echo ""
-            echo "ERROR: Could not find generated .app"
+            echo "ERROR: iOS .app not found."
+
             echo ""
-            echo "All products:"
-            find "$DERIVED_DATA/Build/Products" -maxdepth 3 -print || true
+            echo "Products:"
+            find "$DERIVED_DATA/Build/Products" \
+              -maxdepth 4 \
+              -print || true
+
             exit 1
           fi
 
           echo ""
-          echo "Found app:"
+          echo "======================================"
+          echo "Found APP"
+          echo "======================================"
+
           echo "$APP_PATH"
 
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
+
       # ============================================================
-      # 10. Create unsigned IPA
+      # 12. Create IPA
       # ============================================================
+
       - name: Create IPA
         run: |
           set -euo pipefail
@@ -279,58 +364,63 @@ jobs:
 
           mkdir -p "$PAYLOAD_DIR"
 
-          echo "Copying app:"
+          echo "Copying:"
           echo "$APP_PATH"
 
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
 
-          echo ""
-          echo "Payload:"
-          find "$PAYLOAD_DIR" -maxdepth 2 -print
-
           cd "$IPA_DIR"
 
           zip -qry \
-            "$GITHUB_WORKSPACE/TablePro-unsigned.ipa" \
+            "$GITHUB_WORKSPACE/TablePro-iOS-unsigned.ipa" \
             Payload
 
           echo ""
-          echo "IPA created:"
-          ls -lh "$GITHUB_WORKSPACE/TablePro-unsigned.ipa"
+          echo "======================================"
+          echo "IPA CREATED"
+          echo "======================================"
+
+          ls -lh "$GITHUB_WORKSPACE/TablePro-iOS-unsigned.ipa"
+
 
       # ============================================================
-      # 11. Inspect IPA
+      # 13. Inspect IPA
       # ============================================================
+
       - name: Inspect IPA
         run: |
           set -e
 
           echo "IPA:"
-          ls -lh TablePro-unsigned.ipa
+          ls -lh TablePro-iOS-unsigned.ipa
 
           echo ""
-          echo "IPA contents:"
-          unzip -l TablePro-unsigned.ipa | head -50
+          echo "Contents:"
+          unzip -l TablePro-iOS-unsigned.ipa | head -80
+
 
       # ============================================================
-      # 12. Upload IPA
+      # 14. Upload IPA
       # ============================================================
-      - name: Upload IPA artifact
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: TablePro-iOS-IPA
-          path: TablePro-unsigned.ipa
+          path: TablePro-iOS-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
 
+
       # ============================================================
-      # 13. Upload build logs if build fails
+      # 15. Upload build logs if failed
       # ============================================================
-      - name: Upload build directory
+
+      - name: Upload debug files
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TablePro-build-debug
+          name: TablePro-iOS-build-debug
           path: |
             build/
           if-no-files-found: ignore
