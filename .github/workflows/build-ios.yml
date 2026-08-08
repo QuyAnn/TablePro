@@ -9,58 +9,43 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # ==========================================
-      # 1. Checkout source
-      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ==========================================
-      # 2. Show Xcode version
-      # ==========================================
       - name: Setup Xcode
         run: |
           xcodebuild -version
           xcode-select -p
 
-      # ==========================================
-      # 3. Show project information
-      # ==========================================
-      - name: List Xcode project
+      - name: First time setup
         run: |
-          xcodebuild \
-            -project TablePro.xcodeproj \
-            -list
+          chmod +x scripts/download-libs.sh
+          ./scripts/download-libs.sh
+          touch Secrets.xcconfig
 
-      # ==========================================
-      # 4. Resolve Swift Package dependencies
-      # ==========================================
       - name: Resolve Swift packages
         run: |
           xcodebuild \
             -resolvePackageDependencies \
             -project TablePro.xcodeproj
 
-      # ==========================================
-      # 5. Create build directory
-      # ==========================================
-      - name: Prepare build directory
+      - name: List schemes
         run: |
-          rm -rf build
-          mkdir -p build
+          xcodebuild \
+            -project TablePro.xcodeproj \
+            -list
 
-      # ==========================================
-      # 6. Build iOS application
-      # ==========================================
-      - name: Build iOS
+      - name: Build TablePro
         shell: bash
         run: |
           set -o pipefail
 
+          rm -rf build
+
           xcodebuild \
             -project TablePro.xcodeproj \
-            -scheme TableProMobile \
-            -configuration Release \
+            -scheme TablePro \
+            -configuration Debug \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -derivedDataPath "$PWD/build/DerivedData" \
@@ -71,9 +56,6 @@ jobs:
             build \
             | tee build.log
 
-      # ==========================================
-      # 7. Find generated .app
-      # ==========================================
       - name: Find application
         shell: bash
         run: |
@@ -88,15 +70,6 @@ jobs:
             -name "*.app" \
             -print
 
-          echo "======================================"
-          echo "Build products"
-          echo "======================================"
-
-          find "$PWD/build" \
-            -type d \
-            -path "*/Build/Products/*" \
-            -print
-
           APP_PATH=$(find "$PWD/build" \
             -type d \
             -name "*.app" \
@@ -104,10 +77,15 @@ jobs:
             | head -n 1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "======================================"
             echo "ERROR: No .app found"
-            echo "======================================"
+            echo ""
+            echo "Build products:"
+            find "$PWD/build" \
+              -type d \
+              -path "*/Build/Products/*" \
+              -print
 
+            echo ""
             echo "Last 100 lines of build.log:"
             tail -n 100 build.log
 
@@ -121,9 +99,6 @@ jobs:
 
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
-      # ==========================================
-      # 8. Create IPA
-      # ==========================================
       - name: Create IPA
         shell: bash
         run: |
@@ -136,27 +111,15 @@ jobs:
 
           cp -R "$APP_PATH" Payload/TablePro.app
 
-          echo "======================================"
-          echo "Payload:"
-          echo "======================================"
-
-          ls -lah Payload
-
-          echo "======================================"
-          echo "Creating IPA"
-          echo "======================================"
+          echo "Creating IPA..."
 
           zip -r -9 TablePro.ipa Payload
 
           echo "======================================"
-          echo "IPA created:"
+          echo "IPA:"
+          ls -lh TablePro.ipa
           echo "======================================"
 
-          ls -lh TablePro.ipa
-
-      # ==========================================
-      # 9. Upload IPA
-      # ==========================================
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
@@ -164,9 +127,6 @@ jobs:
           path: TablePro.ipa
           if-no-files-found: error
 
-      # ==========================================
-      # 10. Upload build log
-      # ==========================================
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
